@@ -1,0 +1,55 @@
+services:
+  dimetrics-mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dimetrics-mcp-server
+    ports:
+      - "8000:8000"
+    environment:
+      - DIMETRICS_API_URL=${DIMETRICS_API_URL:-https://dimetrics.api.nc.released.services/api}
+      - DIMETRICS_API_KEY=${DIMETRICS_API_KEY}
+      - DEBUG=${DEBUG:-false}
+      - PORT=8000
+      - HOST=0.0.0.0
+      - MCP_TRANSPORT=http
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 40s
+    networks:
+      - dimetrics-network
+
+  # Optional: Nginx reverse proxy for SSL termination
+  nginx:
+    image: nginx:alpine
+    container_name: dimetrics-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      - dimetrics-mcp-server
+    restart: unless-stopped
+    networks:
+      - dimetrics-network
+    profiles:
+      - nginx
+
+networks:
+  dimetrics-network:
+    driver: bridge
+
+volumes:
+  logs:
+    driver: local

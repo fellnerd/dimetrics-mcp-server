@@ -936,6 +936,232 @@ class DimetricsAPIClient:
         
         response.raise_for_status()
         return response.json()
+
+    # Generics API Methods (Resource Data)
+    async def list_generic_entries(
+        self,
+        resource_name: str,
+        search: Optional[str] = None,
+        page_size: Optional[int] = None,
+        page: Optional[int] = None,
+        ordering: Optional[str] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        directus_filter: Optional[Dict[str, Any]] = None,
+        aggregate: Optional[Dict[str, str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Listet Einträge einer generischen Resource auf (echte Daten) mit Aggregationen.
+        
+        Args:
+            resource_name: Name der Resource (Tabellenname)
+            search: Suchbegriff für Textfelder (Volltext-Suche)
+            page_size: Anzahl Einträge pro Seite
+            page: Seitennummer (1-basiert)
+            ordering: Sortierung (z.B. "name", "-date_created")
+            filters: Einfache Filter als Dict (deprecated, verwende directus_filter)
+            directus_filter: Directus-ähnliche Filter (z.B. {"state": {"_eq": "ok"}})
+            aggregate: Aggregation-Parameter als Dict (z.B. {"sum": "amount", "count": "name"})
+        
+        Returns:
+            Response mit count, next, previous, results und aggregations
+            Bei Aggregationen: results enthält aggregierte Werte statt Rohdaten
+            
+        Beispiele für directus_filter:
+            {"state": {"_eq": "ok"}}                    # Gleichheit
+            {"amount": {"_gte": 10}}                    # Größer oder gleich
+            {"name": {"_contains": "Canva"}}            # Enthält Text
+            {"date_created": {"_between": ["2025-01-01", "2025-12-31"]}}  # Zwischen Daten
+            {"state": {"_in": ["ok", "pending"]}}       # In Liste
+            {"_and": [{"state": {"_eq": "ok"}}, {"amount": {"_gte": 10}}]}  # UND-Verknüpfung
+            
+        Beispiele für aggregate:
+            {"sum": "amount"}                           # Summe aller amount-Werte
+            {"count": "amount"}                         # Anzahl nicht-null amount-Werte
+            {"avg": "amount"}                           # Durchschnitt aller amount-Werte
+            {"min": "amount"}                           # Minimum der amount-Werte
+            {"max": "amount"}                           # Maximum der amount-Werte
+        """
+        import json
+        import urllib.parse
+        
+        params = {}
+        
+        if search:
+            params["search"] = search
+        if page_size:
+            params["page_size"] = page_size
+        if page:
+            params["page"] = page
+        if ordering:
+            params["ordering"] = ordering
+        
+        # Aggregation-Parameter hinzufügen
+        if aggregate:
+            for agg_type, field_name in aggregate.items():
+                params[f"aggregate[{agg_type}]"] = field_name
+            
+            if self.debug:
+                logger.info(f"Aggregation params: {aggregate}")
+        
+        # Directus-ähnliche Filter (bevorzugt)
+        if directus_filter:
+            # Filter als JSON-String URL-encoded übergeben
+            filter_json = json.dumps(directus_filter, ensure_ascii=False)
+            params["filter"] = filter_json
+            
+            if self.debug:
+                logger.info(f"Directus filter JSON: {filter_json}")
+        
+        # Legacy: Einfache Filter (für Rückwärtskompatibilität)
+        elif filters:
+            params.update(filters)
+        
+        if self.debug:
+            logger.info(f"Listing generic entries for resource '{resource_name}' with params: {params}")
+        
+        response = await self.client.get(f"/generics/{resource_name}/", params=params)
+        
+        if self.debug:
+            logger.info(f"Response status: {response.status_code}")
+            logger.info(f"Response body: {response.text}")
+        
+        response.raise_for_status()
+        return response.json()
+        
+        if self.debug:
+            logger.info(f"Listing generic entries for resource '{resource_name}' with params: {params}")
+        
+        response = await self.client.get(f"/generics/{resource_name}/", params=params)
+        
+        if self.debug:
+            logger.info(f"Response status: {response.status_code}")
+            logger.info(f"Response body: {response.text}")
+        
+        response.raise_for_status()
+        return response.json()
+    
+    async def create_generic_entry(
+        self,
+        resource_name: str,
+        data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Erstellt einen neuen Eintrag in einer generischen Resource.
+        
+        Args:
+            resource_name: Name der Resource (Tabellenname)
+            data: Daten für den neuen Eintrag
+        
+        Returns:
+            Antwort mit dem erstellten Eintrag
+        """
+        import json
+        
+        if self.debug:
+            logger.info(f"Creating generic entry for resource '{resource_name}'")
+            logger.info(f"Data: {json.dumps(data, indent=2, ensure_ascii=False)}")
+        
+        response = await self.client.post(f"/generics/{resource_name}/", json=data)
+        
+        if self.debug:
+            logger.info(f"Response status: {response.status_code}")
+            logger.info(f"Response body: {response.text}")
+        
+        response.raise_for_status()
+        return response.json()
+    
+    async def get_generic_entry(
+        self,
+        resource_name: str,
+        entry_id: str
+    ) -> Dict[str, Any]:
+        """
+        Holt einen spezifischen Eintrag aus einer generischen Resource.
+        
+        Args:
+            resource_name: Name der Resource (Tabellenname)
+            entry_id: object_id des Eintrags
+        
+        Returns:
+            Detaillierte Eintragsdaten
+        """
+        if self.debug:
+            logger.info(f"Getting generic entry '{entry_id}' from resource '{resource_name}'")
+        
+        response = await self.client.get(f"/generics/{resource_name}/{entry_id}/")
+        
+        if self.debug:
+            logger.info(f"Response status: {response.status_code}")
+            logger.info(f"Response body: {response.text}")
+        
+        response.raise_for_status()
+        return response.json()
+    
+    async def update_generic_entry(
+        self,
+        resource_name: str,
+        entry_id: str,
+        data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Aktualisiert einen Eintrag in einer generischen Resource (PATCH).
+        
+        Args:
+            resource_name: Name der Resource (Tabellenname)
+            entry_id: object_id des Eintrags
+            data: Zu aktualisierende Daten (nur veränderte Felder)
+        
+        Returns:
+            Antwort mit dem aktualisierten Eintrag
+        """
+        import json
+        
+        if self.debug:
+            logger.info(f"Updating generic entry '{entry_id}' in resource '{resource_name}'")
+            logger.info(f"Update data: {json.dumps(data, indent=2, ensure_ascii=False)}")
+        
+        response = await self.client.patch(f"/generics/{resource_name}/{entry_id}/", json=data)
+        
+        if self.debug:
+            logger.info(f"Response status: {response.status_code}")
+            logger.info(f"Response body: {response.text}")
+        
+        response.raise_for_status()
+        return response.json()
+    
+    async def delete_generic_entry(
+        self,
+        resource_name: str,
+        entry_id: str
+    ) -> Dict[str, Any]:
+        """
+        Löscht einen Eintrag aus einer generischen Resource.
+        
+        Args:
+            resource_name: Name der Resource (Tabellenname)
+            entry_id: object_id des Eintrags
+        
+        Returns:
+            Bestätigung der Löschung
+        """
+        if self.debug:
+            logger.info(f"Deleting generic entry '{entry_id}' from resource '{resource_name}'")
+        
+        response = await self.client.delete(f"/generics/{resource_name}/{entry_id}/")
+        
+        if self.debug:
+            logger.info(f"Response status: {response.status_code}")
+            logger.info(f"Response body: {response.text}")
+        
+        response.raise_for_status()
+        
+        # DELETE kann 204 No Content zurückgeben
+        if response.status_code == 204:
+            return {"message": "Entry deleted successfully", "status": "deleted"}
+        elif response.content:
+            return response.json()
+        else:
+            return {"message": "Entry deleted successfully", "status": "deleted"}
     
     async def close(self):
         """Schließt den HTTP Client."""

@@ -26,6 +26,25 @@ api_client: DimetricsAPIClient = None
 # FastMCP Server erstellen
 mcp = FastMCP("Dimetrics MCP Server")
 
+@mcp.tool()
+async def health_check() -> Dict[str, Any]:
+    """Health Check für den MCP Server."""
+    try:
+        client = await get_api_client()
+        # Einfacher API-Test
+        return {
+            "status": "healthy",
+            "message": "MCP Server läuft und API-Verbindung ist verfügbar",
+            "timestamp": str(asyncio.get_event_loop().time()),
+            "api_configured": bool(client)
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy", 
+            "error": str(e),
+            "message": "MCP Server läuft, aber API-Verbindung fehlgeschlagen"
+        }
+
 async def get_api_client() -> DimetricsAPIClient:
     """Gibt den konfigurierten API Client zurück."""
     global api_client
@@ -1197,6 +1216,13 @@ def main():
     logger.info("    • delete_attribute - Löscht ein Attribut")
     logger.info("    • create_attributes_bulk - Erstellt mehrere Attribute gleichzeitig")
     
+    logger.info("📊 Generics API (Resource Data):")
+    logger.info("    • list_generic_entries - Listet Einträge einer Resource auf (echte Daten) mit Aggregationen und Search")
+    logger.info("    • create_generic_entry - Erstellt einen neuen Eintrag in einer Resource")
+    logger.info("    • get_generic_entry - Holt einen spezifischen Eintrag aus einer Resource")
+    logger.info("    • update_generic_entry - Aktualisiert einen Eintrag in einer Resource (PATCH)")
+    logger.info("    • delete_generic_entry - Löscht einen Eintrag aus einer Resource")
+    
     # Server starten
     mcp.run()
 
@@ -1729,5 +1755,440 @@ async def create_attributes_bulk(resource_name: str, attributes_json: str) -> Di
             "message": f"Fehler beim Bulk-Erstellen der Attribute für Resource '{resource_name}'"
         }
 
+# =====================================
+# Generics API (Resource Data)
+# =====================================
+
+@mcp.tool()
+async def list_generic_entries(
+    resource_name: str,
+    search: str = "",
+    page_size: int = 20,
+    page: int = 1,
+    ordering: str = "",
+    filters_json: str = "{}",
+    directus_filter_json: str = "",
+    aggregate_json: str = ""
+) -> Dict[str, Any]:
+    """
+    Listet Einträge einer Resource auf (echte Daten aus den Tabellen) mit Aggregationen.
+    
+    Args:
+        resource_name: Name der Resource (Tabellenname, z.B. 'lau6_RunEntries')
+        search: Suchbegriff für Textfelder (Volltext-Suche in allen Feldern)
+        page_size: Anzahl Einträge pro Seite (Standard: 20)
+        page: Seitennummer, 1-basiert (Standard: 1)
+        ordering: Sortierung (z.B. "name", "-date_created" für absteigende Sortierung)
+        filters_json: JSON-String mit einfachen Filtern (Legacy, für Rückwärtskompatibilität)
+        directus_filter_json: JSON-String mit Directus-ähnlichen Filtern (empfohlen)
+        aggregate_json: JSON-String mit Aggregation-Parametern
+    
+    Returns:
+        Strukturierte Antwort mit count, next, previous, results und aggregations
+        Bei Aggregationen: results enthält aggregierte Werte statt Rohdaten
+        
+    Beispiele für einfache Filter (filters_json):
+        '{"training_type": "dauerlauf"}'
+        
+    Beispiele für Directus-Filter (directus_filter_json):
+        '{"state": {"_eq": "ok"}}'                                    # Gleichheit
+        '{"amount": {"_gte": 10}}'                                    # Größer gleich
+        '{"name": {"_contains": "Canva"}}'                            # Enthält Text
+        '{"date_created": {"_between": ["2025-01-01", "2025-12-31"]}}' # Zwischen Daten
+        '{"state": {"_in": ["ok", "pending"]}}'                       # In Liste
+        '{"_and": [{"state": {"_eq": "ok"}}, {"amount": {"_gte": 10}}]}' # UND-Verknüpfung
+        '{"_or": [{"state": {"_eq": "ok"}}, {"state": {"_eq": "pending"}}]}' # ODER-Verknüpfung
+        
+    Beispiele für Aggregationen (aggregate_json):
+        '{"sum": "amount"}'                                           # Summe aller amount-Werte
+        '{"count": "amount"}'                                         # Anzahl nicht-null amount-Werte
+        '{"avg": "amount"}'                                           # Durchschnitt aller amount-Werte
+        '{"min": "amount"}'                                           # Minimum der amount-Werte
+        '{"max": "amount"}'                                           # Maximum der amount-Werte
+        '{"sum": "distance_km", "count": "name"}'                     # Mehrere Aggregationen gleichzeitig
+        
+    Beispiele für Search-Parameter:
+        search="Marathon"        # Findet alle Einträge, die "Marathon" in beliebigen Textfeldern enthalten
+        search="Dauerlauf"       # Findet alle Einträge mit "Dauerlauf" in Namen, Beschreibungen, Notizen
+        search="10km"            # Findet alle Einträge, die "10km" enthalten
+        
+    Verfügbare Directus-Operatoren:
+        _eq: Gleichheit, _neq: Ungleichheit, _gt: Größer, _gte: Größer gleich
+        _lt: Kleiner, _lte: Kleiner gleich, _in: In Liste, _nin: Nicht in Liste
+        _contains: Enthält, _ncontains: Enthält nicht, _starts_with: Beginnt mit
+        _nstarts_with: Beginnt nicht mit, _ends_with: Endet mit, _nends_with: Endet nicht mit
+        _between: Zwischen, _nbetween: Nicht zwischen, _null: Ist null, _nnull: Ist nicht null
+        _empty: Ist leer, _nempty: Ist nicht leer
+        
+    Logische Operatoren:
+        _and: UND-Verknüpfung, _or: ODER-Verknüpfung
+        
+    Verfügbare Aggregations-Funktionen:
+        sum: Summe aller Werte (nur für numerische Felder)
+        count: Anzahl nicht-null Werte 
+        avg: Durchschnitt aller Werte (nur für numerische Felder)
+        min: Minimum der Werte
+        max: Maximum der Werte
+    """
+    try:
+        import json
+        
+        # Filter JSON parsen
+        filters = {}
+        directus_filter = {}
+        aggregate = {}
+        
+        # Legacy einfache Filter
+        if filters_json and filters_json != "{}":
+            try:
+                filters = json.loads(filters_json)
+            except json.JSONDecodeError as e:
+                return {
+                    "success": False,
+                    "error": f"Ungültiges JSON-Format für einfache Filter: {e}",
+                    "message": "Fehler beim Parsen der Filter-Parameter"
+                }
+        
+        # Directus-ähnliche Filter (bevorzugt)
+        if directus_filter_json:
+            try:
+                directus_filter = json.loads(directus_filter_json)
+            except json.JSONDecodeError as e:
+                return {
+                    "success": False,
+                    "error": f"Ungültiges JSON-Format für Directus-Filter: {e}",
+                    "message": "Fehler beim Parsen der Directus-Filter-Parameter"
+                }
+        
+        # Aggregation-Parameter parsen
+        if aggregate_json:
+            try:
+                aggregate = json.loads(aggregate_json)
+            except json.JSONDecodeError as e:
+                return {
+                    "success": False,
+                    "error": f"Ungültiges JSON-Format für Aggregations-Parameter: {e}",
+                    "message": "Fehler beim Parsen der Aggregations-Parameter"
+                }
+        
+        client = await get_api_client()
+        result = await client.list_generic_entries(
+            resource_name=resource_name,
+            search=search if search else None,
+            page_size=page_size if page_size > 0 else None,
+            page=page if page > 0 else None,
+            ordering=ordering if ordering else None,
+            filters=filters if filters else None,
+            directus_filter=directus_filter if directus_filter else None,
+            aggregate=aggregate if aggregate else None
+        )
+        
+        return {
+            "success": True,
+            "message": f"Einträge für Resource '{resource_name}' erfolgreich abgerufen",
+            "data": {
+                "count": result.get("count", 0),
+                "total_pages": (result.get("count", 0) + page_size - 1) // page_size if page_size > 0 else 1,
+                "current_page": page,
+                "page_size": page_size,
+                "has_next": result.get("next") is not None,
+                "has_previous": result.get("previous") is not None,
+                "next_url": result.get("next"),
+                "previous_url": result.get("previous"),
+                "aggregations": result.get("aggregations", []),
+                "results": result.get("results", [])
+            },
+            "resource_name": resource_name,
+            "search_term": search,
+            "ordering": ordering,
+            "simple_filters": filters,
+            "directus_filters": directus_filter,
+            "aggregations": aggregate
+        }
+        
+    except Exception as e:
+        logger.error(f"Fehler beim Abrufen der Generic Entries für '{resource_name}': {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "message": f"Fehler beim Abrufen der Einträge für Resource '{resource_name}'"
+        }
+        return {
+            "success": False,
+            "error": str(e),
+            "message": f"Fehler beim Abrufen der Einträge für Resource '{resource_name}'"
+        }
+
+@mcp.tool()
+async def create_generic_entry(
+    resource_name: str,
+    entry_data_json: str
+) -> Dict[str, Any]:
+    """
+    Erstellt einen neuen Eintrag in einer Resource (echte Daten in Tabellen).
+    
+    Args:
+        resource_name: Name der Resource (Tabellenname, z.B. 'lau6_RunEntries')
+        entry_data_json: JSON-String mit den Daten für den neuen Eintrag
+    
+    Returns:
+        Strukturierte Antwort mit dem erstellten Eintrag
+        
+    Beispiele für entry_data_json:
+        '{"name": "Morgenlauf", "distance_km": 5.2, "training_type": "dauerlauf"}'
+        '{"name": "Canva Pro", "amount": 27.50, "state": "ok", "from": "canva.com"}'
+        '{"product_name": "Laptop", "is_available": true, "priority": "high"}'
+        
+    Automatische Felder (werden vom System gesetzt):
+        - object_id: Eindeutige UUID für den Eintrag
+        - date_created: Zeitstempel der Erstellung
+        - date_updated: Zeitstempel der letzten Änderung
+        - subscription: Verknüpfung zum Dimetrics-Account
+        
+    Pflichtfelder (je nach Resource):
+        - name: Name/Titel des Eintrags (meist erforderlich)
+        - state: Status des Eintrags (falls vorhanden, z.B. "active", "ok", "pending")
+    """
+    try:
+        import json
+        
+        # Entry-Daten JSON parsen
+        try:
+            entry_data = json.loads(entry_data_json)
+        except json.JSONDecodeError as e:
+            return {
+                "success": False,
+                "error": f"Ungültiges JSON-Format für Entry-Daten: {e}",
+                "message": "Fehler beim Parsen der Entry-Daten-Parameter"
+            }
+        
+        client = await get_api_client()
+        result = await client.create_generic_entry(
+            resource_name=resource_name,
+            data=entry_data
+        )
+        
+        return {
+            "success": True,
+            "message": f"Eintrag in Resource '{resource_name}' erfolgreich erstellt",
+            "entry": result,
+            "resource_name": resource_name,
+            "created_id": result.get("object_id"),
+            "entry_data": entry_data
+        }
+        
+    except Exception as e:
+        logger.error(f"Fehler beim Erstellen des Generic Entry für '{resource_name}': {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "message": f"Fehler beim Erstellen des Eintrags für Resource '{resource_name}'"
+        }
+
+@mcp.tool()
+async def get_generic_entry(
+    resource_name: str,
+    entry_id: str
+) -> Dict[str, Any]:
+    """
+    Holt einen spezifischen Eintrag aus einer Resource (echte Daten).
+    
+    Args:
+        resource_name: Name der Resource (Tabellenname, z.B. 'lau6_RunEntries')
+        entry_id: object_id des Eintrags (UUID)
+    
+    Returns:
+        Strukturierte Antwort mit den detaillierten Eintragsdaten
+        
+    Beispiele:
+        resource_name="lau6_RunEntries", entry_id="a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        resource_name="n8n_collection", entry_id="c89515a4-13f3-4d7e-b4a5-249b5b4e8368"
+        
+    Rückgabedaten enthalten:
+        - Alle Attribute-Werte des Eintrags
+        - Metadaten: object_id, date_created, date_updated, subscription
+        - Relation-Fields: Verknüpfte Objekte (vendor, etc.)
+    """
+    try:
+        client = await get_api_client()
+        result = await client.get_generic_entry(
+            resource_name=resource_name,
+            entry_id=entry_id
+        )
+        
+        return {
+            "success": True,
+            "message": f"Eintrag '{entry_id}' aus Resource '{resource_name}' erfolgreich abgerufen",
+            "entry": result,
+            "resource_name": resource_name,
+            "entry_id": entry_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Fehler beim Abrufen des Generic Entry '{entry_id}' für '{resource_name}': {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "message": f"Fehler beim Abrufen des Eintrags '{entry_id}' für Resource '{resource_name}'"
+        }
+
+@mcp.tool()
+async def update_generic_entry(
+    resource_name: str,
+    entry_id: str,
+    update_data_json: str
+) -> Dict[str, Any]:
+    """
+    Aktualisiert einen Eintrag in einer Resource (PATCH - nur veränderte Felder).
+    
+    Args:
+        resource_name: Name der Resource (Tabellenname, z.B. 'lau6_RunEntries')
+        entry_id: object_id des zu aktualisierenden Eintrags (UUID)
+        update_data_json: JSON-String mit den zu ändernden Daten
+    
+    Returns:
+        Strukturierte Antwort mit dem aktualisierten Eintrag
+        
+    Beispiele für update_data_json:
+        '{"distance_km": 6.8, "notes": "Sehr guter Lauf!"}'
+        '{"state": "completed", "amount": 29.99}'
+        '{"priority": "urgent", "is_available": false}'
+        
+    PATCH-Verhalten:
+        - Nur angegebene Felder werden geändert
+        - Andere Felder bleiben unverändert
+        - date_updated wird automatisch aktualisiert
+        - object_id und date_created bleiben unverändert
+        
+    Häufige Update-Szenarien:
+        - Status ändern: '{"state": "completed"}'
+        - Werte korrigieren: '{"distance_km": 5.5, "pace_min_per_km": 5.2}'
+        - Notizen hinzufügen: '{"notes": "Toller Lauf bei perfektem Wetter"}'
+        - Verfügbarkeit ändern: '{"is_available": true}'
+    """
+    try:
+        import json
+        
+        # Update-Daten JSON parsen
+        try:
+            update_data = json.loads(update_data_json)
+        except json.JSONDecodeError as e:
+            return {
+                "success": False,
+                "error": f"Ungültiges JSON-Format für Update-Daten: {e}",
+                "message": "Fehler beim Parsen der Update-Daten-Parameter"
+            }
+        
+        client = await get_api_client()
+        result = await client.update_generic_entry(
+            resource_name=resource_name,
+            entry_id=entry_id,
+            data=update_data
+        )
+        
+        return {
+            "success": True,
+            "message": f"Eintrag '{entry_id}' in Resource '{resource_name}' erfolgreich aktualisiert",
+            "entry": result,
+            "resource_name": resource_name,
+            "entry_id": entry_id,
+            "updated_fields": list(update_data.keys()),
+            "update_data": update_data
+        }
+        
+    except Exception as e:
+        logger.error(f"Fehler beim Aktualisieren des Generic Entry '{entry_id}' für '{resource_name}': {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "message": f"Fehler beim Aktualisieren des Eintrags '{entry_id}' für Resource '{resource_name}'"
+        }
+
+@mcp.tool()
+async def delete_generic_entry(
+    resource_name: str,
+    entry_id: str,
+    confirm_deletion: bool = False
+) -> Dict[str, Any]:
+    """
+    Löscht einen Eintrag aus einer Resource (VORSICHT: Unwiderruflich!).
+    
+    Args:
+        resource_name: Name der Resource (Tabellenname, z.B. 'lau6_RunEntries')
+        entry_id: object_id des zu löschenden Eintrags (UUID)
+        confirm_deletion: Bestätigung für die Löschung (MUSS True sein)
+    
+    Returns:
+        Strukturierte Antwort mit Lösch-Bestätigung
+        
+    ⚠️  WARNUNG: Diese Aktion ist UNWIDERRUFLICH!
+        - Der Eintrag wird permanent aus der Datenbank entfernt
+        - Alle Daten des Eintrags gehen verloren
+        - Verknüpfungen zu anderen Objekten werden gelöscht
+        
+    Sicherheits-Check:
+        - confirm_deletion MUSS auf True gesetzt werden
+        - Ohne Bestätigung wird die Löschung abgebrochen
+        
+    Beispiele:
+        resource_name="lau6_RunEntries", entry_id="...", confirm_deletion=True
+        resource_name="n8n_collection", entry_id="...", confirm_deletion=True
+        
+    Empfehlung:
+        - Vorher mit get_generic_entry() die Daten überprüfen
+        - Bei wichtigen Daten: Backup/Export vor Löschung
+        - Für Tests: Nur Test-Einträge löschen, niemals produktive Daten
+    """
+    try:
+        # Sicherheits-Check
+        if not confirm_deletion:
+            return {
+                "success": False,
+                "error": "Löschung nicht bestätigt",
+                "message": "Setzen Sie confirm_deletion=True zur Bestätigung der Löschung",
+                "warning": "Diese Aktion ist unwiderruflich! Überprüfen Sie die Daten vorher."
+            }
+        
+        client = await get_api_client()
+        result = await client.delete_generic_entry(
+            resource_name=resource_name,
+            entry_id=entry_id
+        )
+        
+        return {
+            "success": True,
+            "message": f"Eintrag '{entry_id}' aus Resource '{resource_name}' erfolgreich gelöscht",
+            "deletion_result": result,
+            "resource_name": resource_name,
+            "deleted_entry_id": entry_id,
+            "warning": "Löschung war erfolgreich und unwiderruflich."
+        }
+        
+    except Exception as e:
+        logger.error(f"Fehler beim Löschen des Generic Entry '{entry_id}' für '{resource_name}': {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "message": f"Fehler beim Löschen des Eintrags '{entry_id}' für Resource '{resource_name}'"
+        }
+
 if __name__ == "__main__":
+    import sys
+    
+    def main():
+        """Hauptfunktion zum Starten des MCP Servers."""
+        # Überprüfe, ob HTTP-Transport gewünscht ist (für Container)
+        if os.getenv("MCP_TRANSPORT") == "http" or os.getenv("PORT"):
+            # SSE-Transport für Container (nicht Streamable HTTP)
+            logger.info(f"Starte MCP Server im SSE-Modus für Container")
+            # Konfiguriere Host für Container-Nutzung
+            if hasattr(mcp, 'settings'):
+                mcp.settings.host = "0.0.0.0"
+                mcp.settings.port = int(os.getenv("PORT", 8000))
+            mcp.run(transport="sse")
+        else:
+            # Standard stdio-Transport für lokale Entwicklung
+            logger.info("Starte MCP Server im stdio-Modus")
+            mcp.run()
+    
     main()
