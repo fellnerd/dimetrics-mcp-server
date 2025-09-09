@@ -43,19 +43,13 @@ RUN mkdir -p /app/logs && chown -R mcpuser:mcpuser /app/logs && chown -R mcpuser
 ENV PATH=/home/mcpuser/.local/bin:$PATH
 ENV PYTHONPATH=/app
 
-# Health check script erstellen
-RUN echo '#!/bin/bash\ncurl -f http://localhost:${PORT:-8000}/health || exit 1' > /app/healthcheck.sh \
-    && chmod +x /app/healthcheck.sh
+# Health check entfernt - Container Funktionalität wird über normale Logs überwacht
 
 # Benutzer wechseln
 USER mcpuser
 
 # Port exposieren
 EXPOSE 8000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD /app/healthcheck.sh
 
 # Default command
 CMD ["python3", "-m", "dimetrics_mcp_server"]
