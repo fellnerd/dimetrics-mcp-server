@@ -1,4 +1,5 @@
 services:
+  # Dimetrics MCP Server (Original)
   dimetrics-mcp-server:
     build:
       context: .
@@ -18,12 +19,48 @@ services:
     volumes:
       - ./logs:/app/logs
     restart: unless-stopped
-    # healthcheck:
-    #   test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-    #   interval: 30s
-    #   timeout: 10s
-    #   retries: 3
-    #   start_period: 40s
+    networks:
+      - dimetrics-n8n-net
+
+  # Werkportal MCP Server (Neu)
+  werkportal-mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: werkportal-mcp-server
+    ports:
+      - "5202:8000"
+    environment:
+      - DIMETRICS_API_URL=https://werkportal.api.nc.released.services/api
+      - DIMETRICS_API_KEY=23453245
+      - DEBUG=true
+      - PORT=8000
+      - HOST=0.0.0.0
+      - MCP_TRANSPORT=http
+    volumes:
+      - ./logs/werkportal:/app/logs
+    restart: unless-stopped
+    networks:
+      - dimetrics-n8n-net
+
+  # PPMC MCP Server (Neu)
+  ppmc-mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ppmc-mcp-server
+    ports:
+      - "5203:8000"
+    environment:
+      - DIMETRICS_API_URL=https://ppmc.api.nc.released.services/api
+      - DIMETRICS_API_KEY=f87d66baf43f7868cafb5cb5e5ebfac768dee600
+      - DEBUG=true
+      - PORT=8000
+      - HOST=0.0.0.0
+      - MCP_TRANSPORT=http
+    volumes:
+      - ./logs/ppmc:/app/logs
+    restart: unless-stopped
     networks:
       - dimetrics-n8n-net
 

@@ -2,9 +2,10 @@
 Dimetrics MCP Server - Minimales Beispiel mit FastMCP.
 """
 
-import os
 import asyncio
+import json
 import logging
+import os
 from typing import Dict, Any
 from dotenv import load_dotenv
 
@@ -774,6 +775,198 @@ async def delete_service(object_id: str) -> Dict[str, Any]:
             "message": f"Fehler beim Löschen des Services '{object_id}'"
         }
 
+# Resource Permission Group Tools
+@mcp.tool()
+async def list_resource_permission_groups(
+    page_size: int = 50,
+    page: int = 1,
+    filters_json: str = ""
+) -> Dict[str, Any]:
+    """Listet Resource-Permission-Gruppen auf."""
+    try:
+        client = await get_api_client()
+
+        filters: Dict[str, Any] | None = None
+        if filters_json:
+            try:
+                parsed = json.loads(filters_json)
+                if isinstance(parsed, dict):
+                    filters = parsed
+            except json.JSONDecodeError as exc:
+                return {
+                    "success": False,
+                    "error": f"Ungültiges filters_json: {exc}"
+                }
+
+        result = await client.list_resource_permission_groups(
+            page_size=page_size,
+            page=page,
+            extra_params=filters,
+        )
+
+        return {
+            "success": True,
+            "data": result,
+        }
+    except Exception as exc:
+        logger.error("Fehler beim Auflisten der Permission-Gruppen: %s", exc)
+        return {
+            "success": False,
+            "error": str(exc),
+            "message": "Fehler beim Auflisten der Resource-Permission-Gruppen"
+        }
+
+
+@mcp.tool()
+async def get_resource_permission_group(group_id: str) -> Dict[str, Any]:
+    """Holt Details einer Resource-Permission-Gruppe."""
+    try:
+        if not group_id:
+            return {
+                "success": False,
+                "error": "group_id ist erforderlich"
+            }
+
+        client = await get_api_client()
+        result = await client.get_resource_permission_group(group_id)
+
+        return {
+            "success": True,
+            "permission_group": result
+        }
+    except Exception as exc:
+        logger.error("Fehler beim Abrufen der Permission-Gruppe: %s", exc)
+        return {
+            "success": False,
+            "error": str(exc),
+            "message": f"Fehler beim Abrufen der Permission-Gruppe '{group_id}'"
+        }
+
+
+@mcp.tool()
+async def create_resource_permission_group(
+    name: str,
+    resource: str,
+    subscription: str,
+    show_resource: bool = True,
+    can_create_document: bool = False,
+    can_edit_document: bool = False,
+    can_delete_document: bool = False,
+    can_view_all_documents: bool = False,
+    can_edit_resource: bool = False,
+    can_delete_resource: bool = False,
+    hidden_attributes_json: str = "",
+    custom_filter_json: str = "",
+    extra_fields_json: str = ""
+) -> Dict[str, Any]:
+    """Erstellt eine neue Resource-Permission-Gruppe."""
+    try:
+        if not all([name, resource, subscription]):
+            return {
+                "success": False,
+                "error": "name, resource und subscription sind erforderlich"
+            }
+
+        def _parse_json(value: str, expected_type: type, label: str):
+            if not value:
+                return None
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Ungültiges {label}: {exc}") from exc
+            if not isinstance(parsed, expected_type):
+                raise ValueError(f"{label} muss vom Typ {expected_type.__name__} sein")
+            return parsed
+
+        hidden_attributes = _parse_json(hidden_attributes_json, list, "hidden_attributes_json")
+        custom_filter = _parse_json(custom_filter_json, dict, "custom_filter_json")
+        extra_fields = _parse_json(extra_fields_json, dict, "extra_fields_json")
+
+        client = await get_api_client()
+        result = await client.create_resource_permission_group(
+            name=name,
+            resource=resource,
+            subscription=subscription,
+            show_resource=show_resource,
+            can_create_document=can_create_document,
+            can_edit_document=can_edit_document,
+            can_delete_document=can_delete_document,
+            can_view_all_documents=can_view_all_documents,
+            can_edit_resource=can_edit_resource,
+            can_delete_resource=can_delete_resource,
+            hidden_attributes=hidden_attributes,
+            custom_filter=custom_filter,
+            extra_fields=extra_fields,
+        )
+
+        return {
+            "success": True,
+            "message": f"Permission-Gruppe '{name}' erfolgreich erstellt",
+            "permission_group": result,
+        }
+    except ValueError as val_err:
+        return {
+            "success": False,
+            "error": str(val_err)
+        }
+    except Exception as exc:
+        logger.error("Fehler beim Erstellen der Permission-Gruppe: %s", exc)
+        return {
+            "success": False,
+            "error": str(exc),
+            "message": f"Fehler beim Erstellen der Permission-Gruppe '{name}'"
+        }
+
+
+@mcp.tool()
+async def update_resource_permission_group(
+    group_id: str,
+    fields_json: str
+) -> Dict[str, Any]:
+    """Aktualisiert eine Resource-Permission-Gruppe (PATCH)."""
+    try:
+        if not group_id:
+            return {
+                "success": False,
+                "error": "group_id ist erforderlich"
+            }
+
+        if not fields_json:
+            return {
+                "success": False,
+                "error": "fields_json ist erforderlich"
+            }
+
+        try:
+            fields = json.loads(fields_json)
+        except json.JSONDecodeError as exc:
+            return {
+                "success": False,
+                "error": f"Ungültiges fields_json: {exc}"
+            }
+
+        if not isinstance(fields, dict) or not fields:
+            return {
+                "success": False,
+                "error": "fields_json muss ein nicht-leeres Objekt sein"
+            }
+
+        client = await get_api_client()
+        result = await client.update_resource_permission_group(group_id, **fields)
+
+        return {
+            "success": True,
+            "message": f"Permission-Gruppe '{group_id}' erfolgreich aktualisiert",
+            "permission_group": result,
+        }
+    except Exception as exc:
+        logger.error("Fehler beim Aktualisieren der Permission-Gruppe: %s", exc)
+        return {
+            "success": False,
+            "error": str(exc),
+            "message": f"Fehler beim Aktualisieren der Permission-Gruppe '{group_id}'"
+        }
+
 # Resources Tools
 @mcp.tool()
 async def create_resource(
@@ -1201,6 +1394,11 @@ def main():
     logger.info("    • get_service_details - Holt Service-Details")
     logger.info("    • update_service - Aktualisiert einen Service")
     logger.info("    • delete_service - Löscht einen Service")
+    logger.info("  Resource Permission Groups:")
+    logger.info("    • list_resource_permission_groups - Listet Permission-Gruppen")
+    logger.info("    • get_resource_permission_group - Holt Details einer Permission-Gruppe")
+    logger.info("    • create_resource_permission_group - Erstellt eine Permission-Gruppe")
+    logger.info("    • update_resource_permission_group - Aktualisiert eine Permission-Gruppe")
     logger.info("  Resources:")
     logger.info("    • create_resource - Erstellt eine neue Resource")
     logger.info("    • list_resources - Listet alle Resources auf")

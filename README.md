@@ -1,3 +1,41 @@
+# Dimetrics, Werkportal & PPMC MCP Server - Multi-API Integration
+
+Ein **Model Context Protocol (MCP) Server** der **Dimetrics**, **Werkportal** und **PPMC** APIs unterstützt.
+
+## 🎯 Services
+
+### Dimetrics MCP Server  
+- **Port**: 5201
+- **API**: https://dimetrics.api.nc.released.services/api
+- **Container**: dimetrics-mcp-server
+
+### Werkportal MCP Server
+- **Port**: 5202  
+- **API**: https://werkportal.api.nc.released.services/api
+- **Container**: werkportal-mcp-server
+
+### PPMC MCP Server
+- **Port**: 5203
+- **API**: https://ppmc.api.nc.released.services/api
+- **Container**: ppmc-mcp-server
+
+## 🚀 Verwendung
+
+```bash
+# Alle Services starten
+docker-compose up -d
+
+# Einzelne Services
+docker-compose up -d dimetrics-mcp-server
+docker-compose up -d werkportal-mcp-server
+docker-compose up -d ppmc-mcp-server
+
+# Kombinationen
+docker-compose up -d dimetrics-mcp-server werkportal-mcp-server
+```
+
+---
+
 # Dimetrics MCP Server - Vollständige API-Integration
 
 Ein **Model Context Protocol (MCP) Server** basierend auf dem offiziellen **FastMCP Python SDK**, der eine vollständige Integration mit der Dimetrics Web-API bietet. Ermöglicht GitHub Copilot die natürlichsprachige Verwaltung von Apps, Services, Resources, Attributen und echten Daten.

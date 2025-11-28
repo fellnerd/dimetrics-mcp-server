@@ -508,3 +508,106 @@ def register_tools(server: Server, api_client: DimetricsAPIClient):
                 type="text",
                 text=f"Fehler beim Erstellen der kompletten App: {str(e)}"
             )]
+
+    # Resource Permission Group Tools
+    @server.call_tool()
+    async def list_resource_permission_groups(arguments: dict) -> list[types.TextContent]:
+        """Listet Resource-Permission-Gruppen mit Pagination."""
+        try:
+            page = arguments.get("page", 1)
+            page_size = arguments.get("page_size", 50)
+            filters = arguments.get("filters")
+
+            result = await api_client.list_resource_permission_groups(
+                page_size=page_size,
+                page=page,
+                extra_params=filters or None,
+            )
+
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(result, indent=2, ensure_ascii=False)
+            )]
+        except Exception as exc:
+            logger.error("Fehler beim Auflisten der Permission-Gruppen: %s", exc)
+            return [types.TextContent(type="text", text=f"Fehler: {exc}")]
+
+    @server.call_tool()
+    async def get_resource_permission_group(arguments: dict) -> list[types.TextContent]:
+        """Liest Details einer einzelnen Resource-Permission-Gruppe."""
+        try:
+            group_id = arguments.get("group_id")
+            if not group_id:
+                return [types.TextContent(type="text", text="Fehler: group_id ist erforderlich.")]
+
+            result = await api_client.get_resource_permission_group(group_id)
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(result, indent=2, ensure_ascii=False)
+            )]
+        except Exception as exc:
+            logger.error("Fehler beim Lesen der Permission-Gruppe: %s", exc)
+            return [types.TextContent(type="text", text=f"Fehler: {exc}")]
+
+    @server.call_tool()
+    async def create_resource_permission_group(arguments: dict) -> list[types.TextContent]:
+        """Erstellt eine neue Resource-Permission-Gruppe."""
+        try:
+            name = arguments.get("name")
+            resource = arguments.get("resource")
+            subscription = arguments.get("subscription")
+
+            if not all([name, resource, subscription]):
+                return [types.TextContent(
+                    type="text",
+                    text="Fehler: name, resource und subscription sind erforderlich."
+                )]
+
+            permission_flags = {
+                "show_resource": arguments.get("show_resource", True),
+                "can_create_document": arguments.get("can_create_document", False),
+                "can_edit_document": arguments.get("can_edit_document", False),
+                "can_delete_document": arguments.get("can_delete_document", False),
+                "can_view_all_documents": arguments.get("can_view_all_documents", False),
+                "can_edit_resource": arguments.get("can_edit_resource", False),
+                "can_delete_resource": arguments.get("can_delete_resource", False),
+            }
+
+            payload = await api_client.create_resource_permission_group(
+                name=name,
+                resource=resource,
+                subscription=subscription,
+                hidden_attributes=arguments.get("hidden_attributes"),
+                custom_filter=arguments.get("custom_filter"),
+                extra_fields=arguments.get("extra_fields"),
+                **permission_flags,
+            )
+
+            return [types.TextContent(
+                type="text",
+                text=f"Permission-Gruppe '{name}' erstellt:\n" + json.dumps(payload, indent=2, ensure_ascii=False)
+            )]
+        except Exception as exc:
+            logger.error("Fehler beim Erstellen der Permission-Gruppe: %s", exc)
+            return [types.TextContent(type="text", text=f"Fehler: {exc}")]
+
+    @server.call_tool()
+    async def update_resource_permission_group(arguments: dict) -> list[types.TextContent]:
+        """Aktualisiert Felder einer Resource-Permission-Gruppe."""
+        try:
+            group_id = arguments.get("group_id")
+            if not group_id:
+                return [types.TextContent(type="text", text="Fehler: group_id ist erforderlich.")]
+
+            update_fields = arguments.get("fields", {})
+            if not isinstance(update_fields, dict) or not update_fields:
+                return [types.TextContent(type="text", text="Fehler: fields (dict) ist erforderlich.")]
+
+            result = await api_client.update_resource_permission_group(group_id, **update_fields)
+            return [types.TextContent(
+                type="text",
+                text="Permission-Gruppe aktualisiert:\n" + json.dumps(result, indent=2, ensure_ascii=False)
+            )]
+        except Exception as exc:
+            logger.error("Fehler beim Aktualisieren der Permission-Gruppe: %s", exc)
+            return [types.TextContent(type="text", text=f"Fehler: {exc}")]

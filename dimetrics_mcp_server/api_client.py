@@ -1162,6 +1162,91 @@ class DimetricsAPIClient:
             return response.json()
         else:
             return {"message": "Entry deleted successfully", "status": "deleted"}
+
+    async def list_resource_permission_groups(
+        self,
+        page_size: int = 50,
+        page: int = 1,
+        extra_params: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Listet Resource-Permission-Gruppen über das Generics-API."""
+        params: Dict[str, Any] = {
+            "page_size": page_size,
+            "page": page,
+        }
+
+        if extra_params:
+            # Nur Werte mit Inhalt übernehmen, damit optionale Filter nicht mit None gesendet werden
+            params.update({k: v for k, v in extra_params.items() if v is not None})
+
+        response = await self.client.get("/resource_permission_groups/", params=params)
+        response.raise_for_status()
+        return response.json()
+
+    async def get_resource_permission_group(self, group_id: str) -> Dict[str, Any]:
+        """Holt Details einer spezifischen Resource-Permission-Gruppe."""
+        response = await self.client.get(f"/resource_permission_groups/{group_id}/")
+        response.raise_for_status()
+        return response.json()
+
+    async def create_resource_permission_group(
+        self,
+        name: str,
+        resource: str,
+        subscription: str,
+        show_resource: bool = True,
+        can_create_document: bool = False,
+        can_edit_document: bool = False,
+        can_delete_document: bool = False,
+        can_view_all_documents: bool = False,
+        can_edit_resource: bool = False,
+        can_delete_resource: bool = False,
+        custom_filter: Optional[Dict[str, Any]] = None,
+        hidden_attributes: Optional[List[str]] = None,
+        extra_fields: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Erstellt eine neue Resource-Permission-Gruppe."""
+        data: Dict[str, Any] = {
+            "name": name,
+            "resource": resource,
+            "subscription": subscription,
+            "show_resource": show_resource,
+            "can_create_document": can_create_document,
+            "can_edit_document": can_edit_document,
+            "can_delete_document": can_delete_document,
+            "can_view_all_documents": can_view_all_documents,
+            "can_edit_resource": can_edit_resource,
+            "can_delete_resource": can_delete_resource,
+        }
+
+        if custom_filter is not None:
+            data["custom_filter"] = custom_filter
+        if hidden_attributes is not None:
+            data["hidden_attributes"] = hidden_attributes
+        if extra_fields:
+            # Nur Felder berücksichtigen, die nicht None sind
+            data.update({k: v for k, v in extra_fields.items() if v is not None})
+
+        response = await self.client.post("/resource_permission_groups/", json=data)
+        response.raise_for_status()
+        return response.json()
+
+    async def update_resource_permission_group(
+        self,
+        group_id: str,
+        **fields: Any,
+    ) -> Dict[str, Any]:
+        """Aktualisiert Felder einer Resource-Permission-Gruppe (PATCH)."""
+        payload = {k: v for k, v in fields.items() if v is not None}
+        if not payload:
+            raise ValueError("Mindestens ein Feld muss zum Aktualisieren angegeben werden")
+
+        response = await self.client.patch(
+            f"/resource_permission_groups/{group_id}/",
+            json=payload,
+        )
+        response.raise_for_status()
+        return response.json()
     
     async def close(self):
         """Schließt den HTTP Client."""
